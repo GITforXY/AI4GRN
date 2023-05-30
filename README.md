@@ -14,6 +14,13 @@ Pytorch , Numpy , Networkx, PyTorch Geometric
 
 ## Training 
 
+#### Train the **GENELink** 
+
+```
+cd projects/GENELink/Code
+python main.py --data-name hESC --ground_truth STRING --varying_genes 500
+```
+
 #### Train the **LGLP** to compare with GENELink
 
 ```
