@@ -4,7 +4,6 @@ import torch.nn.functional as F
 from torch.optim import Adam
 import sys
 import os.path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'Code')))
 dataset_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', 'datasets'))
 from scGNN import GENELink
 from torch.optim.lr_scheduler import StepLR
