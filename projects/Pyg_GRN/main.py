@@ -7,6 +7,7 @@ from data import LoadDatasets
 from torch_geometric.data import DataLoader
 from train import LP_GRN
 import time
+from torch.utils.tensorboard import SummaryWriter
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -121,6 +122,7 @@ if args.model == 'DGCNN':
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 trainer = LP_GRN(args, eval_metric=eval, device=device, num_nodes=num_nodes,
                  num_data=len(train_dataset))
+writer = SummaryWriter('/runs')
 
 for epoch in range(args.n_epochs):
     T1 = time.time()
@@ -135,8 +137,14 @@ for epoch in range(args.n_epochs):
 
     T2 = time.time()
     print('Time used: %s秒' % (T2 - T1))
+    
+    writer.add_scalars(data_type + '_' + net_type + '_' + num + '_loss',
+                       {'train': train_loss, 'val': val_loss}, epoch)
+    writer.add_scalars(data_type + '_' + net_type + '_' + num + '_auc',
+                       {'val': val_auc, 'test': test_auc}, epoch)
 
-
+    
+writer.close()
 model_name = os.path.join(args.res_dir, '{}_checkpoint.pth'.format(args.model))
 torch.save(trainer.model.state_dict(), model_name)
 
