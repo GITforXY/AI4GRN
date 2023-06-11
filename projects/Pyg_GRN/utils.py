@@ -17,6 +17,7 @@ from torch_geometric.data import Data
 from torch_geometric.utils import (negative_sampling, add_self_loops,
                                    train_test_split_edges)
 import pdb
+from multiprocessing import Pool
 
 
 def neighbors(fringe, A, outgoing=True):
@@ -171,18 +172,17 @@ def construct_pyg_graph(node_ids, adj, dists, node_features, y, node_label='drnl
                 node_id=node_ids, num_nodes=num_nodes)
     return data
 
- 
+
 def extract_enclosing_subgraphs(link_index, A, x, y, num_hops, node_label='drnl', 
                                 ratio_per_hop=1.0, max_nodes_per_hop=None, 
                                 directed=False, A_csc=None):
     # Extract enclosing subgraphs from A for all links in link_index.
     data_list = []
     for src, dst in tqdm(link_index.t().tolist()):
-        tmp = k_hop_subgraph(src, dst, num_hops, A, ratio_per_hop, 
-                             max_nodes_per_hop, node_features=x, y=y, 
+        tmp = k_hop_subgraph(src, dst, num_hops, A, ratio_per_hop,
+                             max_nodes_per_hop, node_features=x, y=y,
                              directed=directed, A_csc=A_csc)
-        data = construct_pyg_graph(*tmp, node_label)
-        data_list.append(data)
+        data_list.append(construct_pyg_graph(*tmp, node_label))
 
     return data_list
 

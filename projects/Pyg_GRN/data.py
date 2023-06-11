@@ -2,6 +2,8 @@ import torch
 from torch_geometric.data import Dataset, InMemoryDataset
 from utils import *
 import pandas as pd
+from sklearn.decomposition import PCA
+
 
 class SEALDataset(InMemoryDataset):
     def __init__(self, root, data, split_edge, num_hops, percent=100, split='train',
@@ -139,9 +141,13 @@ def LoadDatasets(
 
 
 
-def load_data(feat_path, edge_paths):
-    feat = pd.read_csv(feat_path, index_col=0)
-    x = torch.tensor(feat.values, dtype=torch.float)
+def load_data(feat_path, edge_paths, use_pca=False, hidden_channels=32):
+    feat = pd.read_csv(feat_path, index_col=0).values
+    if use_pca:
+        pca = PCA(n_components=hidden_channels)  # 设置降维后的维度为2
+        feat = pca.fit_transform(feat)
+
+    x = torch.tensor(feat, dtype=torch.float)
 
     split_edge = load_edge_split(edge_paths)
 

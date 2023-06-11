@@ -1,9 +1,9 @@
 from tqdm import tqdm
 import torch
-from torch.nn import BCEWithLogitsLoss
+from torch.nn import BCEWithLogitsLoss, MSELoss
 from models import *
 from metric import evaluate_auc
-
+from torch.optim.lr_scheduler import CosineAnnealingLR, StepLR
 class LP_GRN:
     def __init__(self, args, eval_metric, device,
                  num_nodes, num_data):
@@ -22,11 +22,28 @@ class LP_GRN:
             self.emb = None
 
         self.loss = BCEWithLogitsLoss()
+        self.loss_rec = MSELoss()
+
 
         if args.model == 'DGCNN':
             self.model = DGCNN(hidden_channels=args.hidden_channels, num_layers=args.num_layers,
-                               max_z=args.max_z, k=args.sortpool_k, num_features=args.num_features,
-                               use_feature=args.use_feature, node_embedding=self.emb).to(device)
+                               max_z=args.max_z, use_ignn=args.use_ignn, k=args.sortpool_k,
+                               num_features=args.num_features, use_feature=args.use_feature,
+                               node_embedding=self.emb).to(device)
+        if args.model == 'DGCNN_feat':
+            self.model = DGCNN_feat(hidden_channels=args.hidden_channels, num_layers=args.num_layers,
+                                    max_z=args.max_z, use_ignn=args.use_ignn, k=args.sortpool_k,
+                                    num_features=args.num_features, node_embedding=self.emb).to(device)
+
+        if args.model == 'DGCNN_feat_noNeigFeat':
+            self.model = DGCNN_feat_noNeigFeat(hidden_channels=args.hidden_channels, num_layers=args.num_layers,
+                                    max_z=args.max_z, use_ignn=args.use_ignn, k=args.sortpool_k,
+                                    num_features=args.num_features, node_embedding=self.emb).to(device)
+
+        if args.model == 'DGCNN_feat_rec':
+            self.model = DGCNN_feat_rec(hidden_channels=args.hidden_channels, num_layers=args.num_layers,
+                                        max_z=args.max_z, use_ignn=args.use_ignn, k=args.sortpool_k,
+                                        num_features=args.num_features, node_embedding=self.emb).to(device)
         elif args.model == 'SAGE':
             self.model = SAGE(hidden_channels=args.hidden_channels, num_layers=args.num_layers,
                               max_z=args.max_z, use_feature=args.use_feature, node_embedding=self.emb).to(device)
@@ -37,7 +54,34 @@ class LP_GRN:
             self.model = GIN(hidden_channels=args.hidden_channels, num_layers=args.num_layers, train_dataset=None,
                              max_z=args.max_z, node_embedding=self.emb).to(device)
 
-        self.optimizer = torch.optim.Adam(params=self.model.parameters(), lr=args.lr)
+        if args.pre_trained:
+            ckpt = torch.load('DGCNN_pre_trained.pth')
+            ckpt.pop('node_embedding.weight')
+            if args.use_feature:
+                ckpt.pop('convs.0.bias')
+                ckpt.pop('convs.0.lin.weight')
+
+                self.model.load_state_dict(ckpt, strict=False)
+                param_train = ['convs.0.bias', 'convs.0.lin.weight',
+                               'feat.0.weight', 'feat.0.bias', 'node_embedding.weight']
+                self.optimizer = torch.optim.Adam([{'params': list(self.model.convs[0].parameters()) +
+                                                         list(self.model.feat.parameters()) +
+                                                         list(self.model.node_embedding.parameters()), 'lr': args.lr},
+                                                   {'params': [p for n, p in list(self.model.named_parameters())
+                                                         if not any(nd in n for nd in param_train)], 'lr': 0.1*args.lr}
+                                                  ])
+            else:
+                self.model.load_state_dict(ckpt, strict=False)
+                self.optimizer = torch.optim.Adam([{'params': self.model.node_embedding.parameters(), 'lr': args.lr},
+                                                   {'params': [p for n, p in list(self.model.named_parameters())
+                                                               if 'node' not in n], 'lr': 0.1*args.lr}
+                                                  ])
+        else:
+            self.optimizer = torch.optim.Adam(params=self.model.parameters(), lr=args.lr)
+
+        self.scheduler = CosineAnnealingLR(self.optimizer, T_max=args.n_epochs, eta_min=1e-6)
+
+        print(self.model)
 
     def train(self, train_loader):
         self.model.train()
@@ -49,11 +93,18 @@ class LP_GRN:
             x = data.x if self.use_feature else None
             edge_weight = data.edge_weight if self.use_edge_weight else None
             node_id = data.node_id if self.emb else None
-            logits = self.model(data.z, data.edge_index, data.batch, x, edge_weight, node_id)
-            loss = self.loss(logits.view(-1), data.y.to(torch.float))
+            if self.args.model == 'DGCNN_feat_rec':
+                logits, x_rec = self.model(data.z, data.edge_index, data.batch, x, edge_weight, node_id)
+                loss = self.loss(logits.view(-1), data.y.to(torch.float)) + 0.01*self.loss_rec(x, x_rec)
+            else:
+                logits = self.model(data.z, data.edge_index, data.batch, x, edge_weight, node_id)
+                loss = self.loss(logits.view(-1), data.y.to(torch.float))
+
             loss.backward()
             self.optimizer.step()
             total_loss += loss.item() * data.num_graphs
+
+        self.scheduler.step()
 
         return total_loss / self.num_data
 
@@ -69,7 +120,10 @@ class LP_GRN:
             x = data.x if self.use_feature else None
             edge_weight = data.edge_weight if self.use_edge_weight else None
             node_id = data.node_id if self.emb else None
-            logits = self.model(data.z, data.edge_index, data.batch, x, edge_weight, node_id)
+            if self.args.model == 'DGCNN_feat_rec':
+                logits, x_rec = self.model(data.z, data.edge_index, data.batch, x, edge_weight, node_id)
+            else:
+                logits = self.model(data.z, data.edge_index, data.batch, x, edge_weight, node_id)
             y_pred.append(logits.view(-1).cpu())
             y_true.append(data.y.view(-1).cpu().to(torch.float))
             total_loss += self.loss(logits.view(-1), data.y.to(torch.float)).item() * data.num_graphs
@@ -89,7 +143,10 @@ class LP_GRN:
             x = data.x if self.use_feature else None
             edge_weight = data.edge_weight if self.use_edge_weight else None
             node_id = data.node_id if self.emb else None
-            logits = self.model(data.z, data.edge_index, data.batch, x, edge_weight, node_id)
+            if self.args.model == 'DGCNN_feat_rec':
+                logits, x_rec = self.model(data.z, data.edge_index, data.batch, x, edge_weight, node_id)
+            else:
+                logits = self.model(data.z, data.edge_index, data.batch, x, edge_weight, node_id)
             y_pred.append(logits.view(-1).cpu())
             y_true.append(data.y.view(-1).cpu().to(torch.float))
         test_pred, test_true = torch.cat(y_pred), torch.cat(y_true)
