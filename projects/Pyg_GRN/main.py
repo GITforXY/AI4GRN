@@ -23,6 +23,7 @@ parser.add_argument('--use_pca', action='store_true',
 # GNN settings
 parser.add_argument('--model', type=str, default='DGCNN')
 parser.add_argument('--use_ignn', action='store_true', help="whether to use ignn")
+parser.add_argument('--use_gatv2', action='store_true', help="whether to use gatv2")
 parser.add_argument('--pre_trained', action='store_true',
                     help="if provided pre-trained model, only train other parameters")
 parser.add_argument('--sortpool_k', type=float, default=0.6)
