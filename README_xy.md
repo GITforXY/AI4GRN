@@ -10,6 +10,7 @@ conda activate GRGNN        # 可运行 SEAL_pyg, GENELink, SERGIO
 conda activate graphmae     # 可运行 GraphMAE
 ```
 ```
+cd /mnt/workspace/xieyong/projects/
 pip install -r requirements_base.txt
 pip install -r requirements_GRGNN.txt
 pip install -r requirements_graphmae.txt
