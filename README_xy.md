@@ -9,6 +9,11 @@ conda activate              # 可运行 GENIE3, SEACells
 conda activate GRGNN        # 可运行 SEAL_pyg, GENELink, SERGIO
 conda activate graphmae     # 可运行 GraphMAE
 ```
+```
+pip install -r requirements_base.txt
+pip install -r requirements_GRGNN.txt
+pip install -r requirements_graphmae.txt
+```
 ## dataset & preprocessing
 ### beeline数据集：
 表达特征目录：`/mnt/data/oss_beijing/xieyong/datasets/BEELINE_genelink`
