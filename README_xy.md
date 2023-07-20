@@ -9,12 +9,6 @@ conda activate              # 可运行 GENIE3, SEACells
 conda activate GRGNN        # 可运行 SEAL_pyg, GENELink, SERGIO
 conda activate graphmae     # 可运行 GraphMAE
 ```
-```
-cd /mnt/workspace/xieyong/projects/
-pip install -r requirements_base.txt
-pip install -r requirements_GRGNN.txt
-pip install -r requirements_graphmae.txt
-```
 ## dataset & preprocessing
 ### beeline数据集：
 表达特征目录：`/mnt/data/oss_beijing/xieyong/datasets/BEELINE_genelink`
@@ -28,6 +22,8 @@ pip install -r requirements_graphmae.txt
 数据划分代码：`/mnt/data/oss_beijing/qiank/Dataset/Benchmark Dataset/Train_Test_Split1_1.py`
 
 ### human数据集：
+原始数据目录：`/mnt/workspace/qiank/data/snRNA_seq`, `/mnt/data/oss_beijing/xieyong/datasets/model_data/`
+
 表达特征目录：`/mnt/data/oss_beijing/xieyong/datasets/model_data/Expressions/`
 
 数据划分目录：`/mnt/data/oss_beijing/xieyong/datasets/model_data/Data_Split_2qiank/`
@@ -110,3 +106,23 @@ cd /mnt/workspace/xieyong/projects/SEACells/notebooks
 `sc.tl.pca(ad, n_comps=50, use_highly_variable=True)`，pca降维后用于模型输入
 
 `n_SEACells = 32`，输出的metacells的数量
+
+## 功能性函数/脚本
+
+绘制子图：
+
+`/mnt/workspace/xieyong/projects/Pyg_GRN/Python/utils.py`下的
+`def draw_network(dataset, data_type)`
+
+每个样本的分类结果：
+
+`/mnt/workspace/xieyong/projects/Pyg_GRN/Python/utils.py`下的
+`def save_test_results(split, y_true, y_pred, data_name)`
+
+节点索引与基因名称的对照：
+
+`/mnt/workspace/xieyong/projects/test_results.ipynb`
+
+对于human数据集，单张3090无法训练GENELink，故只选取了包含调控关系的节点。此时的节点索引和原节点索引的对照：
+`/mnt/workspace/xieyong/projects/updata_index.ipynb`
+
