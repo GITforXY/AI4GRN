@@ -1,9 +1,11 @@
-import torch
+import numpy as np
 from torch_geometric.data import Dataset, InMemoryDataset
 from utils import *
 import pandas as pd
 from sklearn.decomposition import PCA
-
+import scanpy as sc
+import scipy.io as sio
+import scanpy.external as sce
 
 class SEALDataset(InMemoryDataset):
     def __init__(self, root, data, split_edge, num_hops, percent=100, split='train',
@@ -140,19 +142,44 @@ def LoadDatasets(
     return datasets
 
 
-
-def load_data(feat_path, edge_paths, use_pca=False, hidden_channels=32):
-    feat = pd.read_csv(feat_path, index_col=0).values
-    if use_pca:
-        pca = PCA(n_components=hidden_channels)  # 设置降维后的维度为2
-        feat = pca.fit_transform(feat)
-
-    x = torch.tensor(feat, dtype=torch.float)
-
+def load_data(feat_path, edge_paths, imputed=False, use_log=False, use_pca=False):
+    print(feat_path)
     split_edge = load_edge_split(edge_paths)
 
     edges = split_edge['train']['edge'].clone().detach()
     edge_index = edges.t().contiguous()
+
+    if feat_path.endswith('mtx'):
+        feat = sio.mmread(feat_path)
+        if feat.__class__ is not np.ndarray:
+            feat = feat.toarray()
+
+    elif feat_path.endswith('npz'):
+        data = np.load(feat_path)
+        feat = data['gene']
+
+    else:
+        feat = pd.read_csv(feat_path, index_col=0).values
+    adata = sc.AnnData(feat.astype(np.float32).T)
+    print(adata)
+
+    if imputed:
+        adata.raw = adata.copy()
+        sce.pp.dca(adata)
+
+        # sc.pp.normalize_per_cell(adata)
+        # sc.pp.log1p(adata)  # or sc.pp.log1p(adata)
+        # sce.pp.magic(adata, name_list=np.unique(edges[:, 0]).tolist())
+
+    if use_log:
+        # print()
+        feat = np.log(adata.X.T+1)
+
+    if use_pca:
+        pca = PCA(n_components=32)
+        feat = pca.fit_transform(feat)
+
+    x = torch.tensor(feat, dtype=torch.float)
 
     data = Data(x=x, edge_index=edge_index)
     return data, split_edge
@@ -174,8 +201,8 @@ def load_edge_split(edge_paths):
     train_neg = train_edges[train_labels == 0]
 
     split_edge = {'train': {}, 'valid': {}, 'test': {}}
-    split_edge['train']['edge'] = torch.concatenate([train_pos, train_pos[:, [-1, 0]]])
-    split_edge['train']['edge_neg'] = torch.concatenate([train_neg, train_neg[:, [-1, 0]]])
+    split_edge['train']['edge'] = torch.cat([train_pos, train_pos[:, [-1, 0]]])
+    split_edge['train']['edge_neg'] = torch.cat([train_neg, train_neg[:, [-1, 0]]])
     split_edge['valid']['edge'] = val_edges[val_labels == 1]
     split_edge['valid']['edge_neg'] = val_edges[val_labels == 0]
     split_edge['test']['edge'] = test_edges[test_labels == 1]

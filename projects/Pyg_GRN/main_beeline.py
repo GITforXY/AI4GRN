@@ -7,6 +7,7 @@ from data import LoadDatasets
 from torch_geometric.data import DataLoader
 from train import LP_GRN
 import time
+from torch.utils.tensorboard import SummaryWriter
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -15,7 +16,7 @@ torch.backends.cudnn.benchmark = True
 # Data settings
 parser = argparse.ArgumentParser(description='GRN')
 parser.add_argument('--data', type=str, default='hESC', help='data type')
-parser.add_argument('--net', type=str, default='Specific', help='network type')
+parser.add_argument('--net', type=str, default='STRING', help='network type')
 parser.add_argument('--num', type=int, default=500, help='network scale')
 parser.add_argument('--use_pca', action='store_true',
                     help="whether to use PCA node features as GNN input")
@@ -55,15 +56,48 @@ parser.add_argument('--val_percent', type=float, default=100)
 parser.add_argument('--test_percent', type=float, default=100)
 parser.add_argument('--dynamic', action='store_true',
                     help="dynamically extract enclosing subgraphs on the fly")
+parser.add_argument('--num_workers', type=int, default=4,
+                    help="number of workers for dynamic mode; 0 if not dynamic")
+parser.add_argument('--train_node_embedding', action='store_true',
+                    help="also train free-parameter node embeddings together with GNN")
+parser.add_argument('--pretrained_node_embedding', type=str, default=None,
+                    help="load pretrained node embeddings as additional node features")
 
+# Testing settings
+parser.add_argument('--eval_steps', type=int, default=1)
+parser.add_argument('--log_steps', type=int, default=5)
+parser.add_argument('--only_test', action='store_true',
+                    help="only test without training")
+parser.add_argument('--test_multiple_models', action='store_true',
+                    help="test multiple models together")
 
 args = parser.parse_args()
 
 if args.use_pca:
     args.use_feature = True
+
+param_str = f"beeline_{args.data}_{args.model}_epochs{args.n_epochs}_layers{args.num_layers}"
+if args.use_gatv2:
+    param_str += "_GATv2"
+if args.use_feature:
+    param_str += "_feat"
+if args.use_pca:
+    param_str += "_pca"
+if args.use_log:
+    param_str += "_log"
+
 # Load data
 data_type, net_type, num = args.data, args.net, str(args.num)
 data_name = net_type + '_' + data_type + '_' + num
+
+if args.train_node_embedding:
+    args.res_dir = os.path.join('results/{}_{}'.format(args.model, 'emb'))
+else:
+    args.res_dir = os.path.join('results/{}_{}'.format(args.model, 'noemb'))
+
+print('Results will be saved in ' + args.res_dir)
+if not os.path.exists(args.res_dir):
+    os.makedirs(args.res_dir)
 
 feat_path = '/mnt/data/oss_beijing/qiank/Dataset/Benchmark Dataset/' + \
             net_type + ' Dataset/' + data_type + '/TFs+' + num + '/BL--ExpressionData.csv'
@@ -95,3 +129,70 @@ train_dataset, val_dataset, test_dataset = \
                  node_label=args.node_label, ratio_per_hop=args.ratio_per_hop,
                  max_nodes_per_hop=args.max_nodes_per_hop,
                  directed=directed, split=['train', 'valid', 'test'])
+
+train_loader = DataLoader(train_dataset, batch_size=args.batch_size,
+                          shuffle=True, num_workers=args.num_workers,
+                          pin_memory=True, prefetch_factor=8)
+val_loader = DataLoader(val_dataset, batch_size=args.batch_size,
+                        num_workers=args.num_workers, pin_memory=True)
+test_loader = DataLoader(test_dataset, batch_size=args.batch_size,
+                         num_workers=args.num_workers, pin_memory=True)
+
+## args
+
+args.max_z = 1000
+
+if 'DGCNN' in args.model:
+    if args.sortpool_k <= 1:  # Transform percentile to number.
+        if args.dynamic:
+            sampled_train = train_dataset[:1000]
+        else:
+            sampled_train = train_dataset
+        subg_num_nodes = sorted([g.num_nodes for g in sampled_train])
+        k = subg_num_nodes[int(math.ceil(args.sortpool_k * len(subg_num_nodes))) - 1]
+        args.k = max(10, k)
+    else:
+        args.k = args.sortpool_k
+    print(f'SortPooling k is set to {args.k}')
+
+# Training starts
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+trainer = LP_GRN(args, eval_metric=eval, device=device, num_nodes=num_nodes,
+                 num_data=len(train_dataset))
+writer = SummaryWriter('./runs')
+
+best_val_epoch = 0
+best_val_acu = 0.0
+all_test_auc = []
+
+for epoch in range(args.n_epochs):
+    T1 = time.time()
+
+    train_loss = trainer.train(train_loader=train_loader)
+    val_loss, val_auc = trainer.val(val_loader=val_loader)
+    print('Epoch: {}, Train Loss: {}, Valid Loss: {}, Valid auc: {}'.format(epoch+1, train_loss, val_loss, val_auc))
+
+    if val_auc > best_val_acu:
+        best_val_epoch = epoch
+        best_val_acu = val_auc
+        best_model = trainer.model.state_dict()
+
+    test_auc = trainer.test(test_loader=test_loader)
+    print('Test auc: {}'.format(test_auc))
+    all_test_auc.append(test_auc)
+
+    T2 = time.time()
+    print('Time used: %s second' % (T2 - T1))
+
+    writer.add_scalars(f'{param_str}_loss',
+                       {'train': train_loss, 'val': val_loss}, epoch)
+    writer.add_scalars(f'{param_str}_auc',
+                       {'val': val_auc, 'test': test_auc}, epoch)
+
+
+writer.close()
+model_name = os.path.join(args.res_dir, '{}_checkpoint.pth'.format(param_str))
+torch.save(best_model, model_name)
+
+print("Final test auc for data '{}' is: {}, for best_val is: {}, best test is: {}".format(
+    param_str, all_test_auc[-1], all_test_auc[best_val_epoch], max(all_test_auc)))

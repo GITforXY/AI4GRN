@@ -16,8 +16,7 @@ from torch_geometric.data import DataLoader
 from torch_geometric.data import Data
 from torch_geometric.utils import (negative_sampling, add_self_loops,
                                    train_test_split_edges)
-import pdb
-from multiprocessing import Pool
+import pandas as pd
 
 
 def neighbors(fringe, A, outgoing=True):
@@ -377,3 +376,23 @@ class Logger(object):
             r = best_result[:, 1]
             print(f'   Final Test: {r.mean():.2f} ± {r.std():.2f}', file=f)
 
+
+def save_test_results(split, gene_list, y_true, y_pred, data_name):
+    edge_index = torch.cat([split['edge'], split['edge_neg']], dim=0).long()
+    edge_index = np.array(edge_index).reshape(-1, 2)
+
+    TF = np.array(gene_list[edge_index[:,0]]).reshape(-1, 1)
+    Gene = np.array(gene_list[edge_index[:,1]]).reshape(-1, 1)
+
+    print(TF.shape)
+
+    y_true = y_true.numpy().reshape(-1, 1)
+    y_pred = torch.round(torch.sigmoid(y_pred))
+    y_pred = y_pred.numpy().reshape(-1, 1)
+    print(y_pred.shape)
+
+    data = np.concatenate((TF, Gene, y_true, y_pred), axis=1)
+
+    # Create a pandas DataFrame and save it to a CSV file
+    test = pd.DataFrame(data, columns=['source', 'target', 'y_true', 'y_pred'])
+    test.to_csv(f'test_results/test_results_{data_name}.csv', index=False)

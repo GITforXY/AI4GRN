@@ -158,7 +158,7 @@ class SAGE(torch.nn.Module):
 
 # An end-to-end deep learning architecture for graph classification, AAAI-18.
 class DGCNN(torch.nn.Module):
-    def __init__(self, hidden_channels, num_layers, max_z, num_features, use_ignn=False, use_gatv2=False,
+    def __init__(self, hidden_channels, num_layers, max_z, num_features, use_ignn=False, use_gatv2=False, num_heads=4,
                  k=10, GNN=GCNConv, NGNN=NGNN_GCNConv, GATv2=GATv2Conv, use_feature=False, node_embedding=None):
         super(DGCNN, self).__init__()
 
@@ -244,8 +244,8 @@ class DGCNN(torch.nn.Module):
 
 # An end-to-end deep learning architecture for graph classification, AAAI-18.
 class DGCNN_feat(torch.nn.Module):
-    def __init__(self, hidden_channels, num_layers, max_z, num_features, use_ignn=False, use_gatv2=False,
-                 k=10, GNN=GCNConv, NGNN=NGNN_GCNConv, GATv2=GATv2Conv, node_embedding=None):
+    def __init__(self, hidden_channels, num_layers, max_z, num_features, feature_dim, use_ignn=False, use_gatv2=False,
+                 num_heads=4, k=10, GNN=GCNConv, NGNN=NGNN_GCNConv, GATv2=GATv2Conv, node_embedding=None):
         super(DGCNN_feat, self).__init__()
 
         self.node_embedding = node_embedding
@@ -255,12 +255,17 @@ class DGCNN_feat(torch.nn.Module):
         self.z_embedding = Embedding(self.max_z, hidden_channels)
 
         # self.feat = torch.nn.Sequential(Linear(num_features, 128), ReLU(), Linear(128, hidden_channels))
-        self.feat = torch.nn.Sequential(Linear(num_features, hidden_channels), ReLU())
-        initial_channels = 2*hidden_channels
+
+        # self.feat = torch.nn.Sequential(Linear(num_features, hidden_channels), ReLU())
+        # initial_channels = 2*hidden_channels
+
+        self.feat = torch.nn.Sequential(Linear(num_features, feature_dim), ReLU())
+        initial_channels = hidden_channels + feature_dim
+
         if self.node_embedding is not None:
             initial_channels += node_embedding.embedding_dim
 
-        self.num_heads = 4
+        self.num_heads = num_heads
 
         self.convs = ModuleList()
         if use_ignn:
@@ -297,6 +302,8 @@ class DGCNN_feat(torch.nn.Module):
     def forward(self, z, edge_index, batch, x, edge_weight=None, node_id=None):
         z_emb = self.z_embedding(z)
         x = self.feat(x)
+
+        ## TODO: add batchnorm
         x = torch.cat([z_emb, x.to(torch.float)], 1)
 
         if self.node_embedding is not None and node_id is not None:

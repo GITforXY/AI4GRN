@@ -28,24 +28,24 @@ class LP_GRN:
         if args.model == 'DGCNN':
             self.model = DGCNN(hidden_channels=args.hidden_channels, num_layers=args.num_layers,
                                max_z=args.max_z, use_ignn=args.use_ignn, use_gatv2=args.use_gatv2,
-                               k=args.sortpool_k, num_features=args.num_features, use_feature=args.use_feature,
-                               node_embedding=self.emb).to(device)
+                               num_heads=args.num_heads, k=args.k, num_features=args.num_features,
+                               use_feature=args.use_feature, node_embedding=self.emb).to(device)
         if args.model == 'DGCNN_feat':
             self.model = DGCNN_feat(hidden_channels=args.hidden_channels, num_layers=args.num_layers,
                                     max_z=args.max_z, use_ignn=args.use_ignn, use_gatv2=args.use_gatv2,
-                                    k=args.sortpool_k, num_features=args.num_features,
-                                    node_embedding=self.emb).to(device)
+                                    num_heads=args.num_heads, k=args.k, num_features=args.num_features,
+                                    feature_dim=args.feature_dim, node_embedding=self.emb).to(device)
 
         if args.model == 'DGCNN_feat_noNeigFeat':
             self.model = DGCNN_feat_noNeigFeat(hidden_channels=args.hidden_channels, num_layers=args.num_layers,
                                     max_z=args.max_z, use_ignn=args.use_ignn, use_gatv2=args.use_gatv2,
-                                    k=args.sortpool_k, num_features=args.num_features,
+                                    k=args.k, num_features=args.num_features,
                                     node_embedding=self.emb).to(device)
 
         if args.model == 'DGCNN_feat_rec':
             self.model = DGCNN_feat_rec(hidden_channels=args.hidden_channels, num_layers=args.num_layers,
                                         max_z=args.max_z, use_ignn=args.use_ignn, use_gatv2=args.use_gatv2,
-                                        k=args.sortpool_k, num_features=args.num_features,
+                                        k=args.k, num_features=args.num_features,
                                         node_embedding=self.emb).to(device)
         elif args.model == 'SAGE':
             self.model = SAGE(hidden_channels=args.hidden_channels, num_layers=args.num_layers,

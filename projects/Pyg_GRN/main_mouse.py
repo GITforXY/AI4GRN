@@ -15,11 +15,13 @@ torch.backends.cudnn.benchmark = True
 
 # Data settings
 parser = argparse.ArgumentParser(description='GRN')
-parser.add_argument('--data', type=str, default='hESC', help='data type')
-parser.add_argument('--net', type=str, default='Specific', help='network type')
-parser.add_argument('--num', type=int, default=500, help='network scale')
+parser.add_argument('--data', type=str, default='AST', help='data type')
+parser.add_argument('--pre_model', type=str, default=None)
+parser.add_argument('--omics', type=str, default='RNA')
 parser.add_argument('--use_pca', action='store_true',
                     help="whether to use PCA node features as GNN input")
+parser.add_argument('--imputed', action='store_true',
+                    help="whether to use imputed features as GNN input")
 parser.add_argument('--use_log', action='store_true',
                     help="whether to use log-norm node features as GNN input")
 
@@ -48,15 +50,15 @@ parser.add_argument('--use_edge_weight', action='store_true',
                     help="whether to consider edge weight in GNN")
 
 # Training settings
-parser.add_argument('--lr', type=float, default=5e-4)
-parser.add_argument('--n_epochs', type=int, default=20)
+parser.add_argument('--lr', type=float, default=5e-5)
+parser.add_argument('--n_epochs', type=int, default=10)
 parser.add_argument('--runs', type=int, default=1)
 parser.add_argument('--train_percent', type=float, default=100)
 parser.add_argument('--val_percent', type=float, default=100)
 parser.add_argument('--test_percent', type=float, default=100)
 parser.add_argument('--dynamic', action='store_true',
                     help="dynamically extract enclosing subgraphs on the fly")
-parser.add_argument('--num_workers', type=int, default=16,
+parser.add_argument('--num_workers', type=int, default=8,
                     help="number of workers for dynamic mode; 0 if not dynamic")
 parser.add_argument('--train_node_embedding', action='store_true',
                     help="also train free-parameter node embeddings together with GNN")
@@ -76,7 +78,9 @@ args = parser.parse_args()
 if args.use_pca:
     args.use_feature = True
 
-param_str = f"{args.data}_{args.model}_epochs{args.n_epochs}_layers{args.num_layers}"
+data_type = args.data
+
+param_str = f"mouse_{data_type}_{args.model}_epochs{args.n_epochs}_layers{args.num_layers}"
 if args.use_gatv2:
     param_str += "_GATv2"
 if args.use_feature:
@@ -87,10 +91,6 @@ if args.use_log:
     param_str += "_log"
 
 # Load data
-data_type, net_type, num = args.data, args.net, str(args.num)
-data_name = net_type + '_' + data_type + '_' + num
-if args.use_pca: data_name += "_pca"
-if args.use_log: data_name += "_log"
 
 if args.train_node_embedding:
     args.res_dir = os.path.join('results/{}_{}'.format(args.model, 'emb'))
@@ -101,21 +101,52 @@ print('Results will be saved in ' + args.res_dir)
 if not os.path.exists(args.res_dir):
     os.makedirs(args.res_dir)
 
-feat_path = '/mnt/data/oss_beijing/qiank/Dataset/Benchmark Dataset/' + \
-            net_type + ' Dataset/' + data_type + '/TFs+' + num + '/BL--ExpressionData.csv'
-edge_root_path = '/mnt/data/oss_beijing/qiank/Dataset/Benchmark Dataset/Train1_1/'+ \
-            net_type + '/' + data_type + ' ' + num
 
-edge_paths = {'train': edge_root_path + '/Train_set.csv',
-              'test': edge_root_path + '/Test_set.csv',
-              'valid': edge_root_path + '/Validation_set.csv'}
+if args.pre_model == 'simba':
+    print('Use simba gene embedding of {} data as input.'.format(args.omics))
+    if args.omics == 'RNA':
+        feat_path = '/mnt/workspace/qiank/data/simba_rna_data/' + data_type + '_simba.npz'
+    elif args.omics == 'ATAC':
+        feat_path = '/mnt/workspace/qiank/data/simba_atac_data/' + data_type + '_simba.npz'
+    else:
+        feat_path = '/mnt/workspace/qiank/data/simba_multi_data/' + data_type + '_simba.npz'
 
-data, split_edge = load_data(feat_path, edge_paths, False, args.use_log, args.use_pca)
+elif args.pre_model == 'GLUE':
+    print('Use GLUE gene embedding as input.')
+    feat_path = '/mnt/workspace/qiank/data/glue_data/' + data_type + '_glue.npz'
+
+elif args.pre_model == 'combine':
+    print('Use combined data as input.')
+    feat_path = '/mnt/data/oss_beijing/xieyong/datasets/mouse/Expressions/' + \
+           data_type + '_combined.mtx'
+
+else:
+    print('Use original {} data as input.'.format(args.omics))
+    if args.omics == 'RNA':
+        feat_path = '/mnt/data/oss_beijing/xieyong/datasets/mouse/Expressions/' + \
+                    data_type + '_submatrix.mtx'
+    else:
+        feat_path = '/mnt/data/oss_beijing/xieyong/datasets/mouse/Expressions/' + \
+                    data_type + '_gene_score.mtx'
+
+
+edge_root_path = '/mnt/data/oss_beijing/xieyong/datasets/mouse/Data_Split_1_1/'+ \
+           data_type
+
+edge_paths = {'train': edge_root_path + '/Train_set.csv', # '/filter0.1_Train_set.csv',
+              'test': edge_root_path + '/Test_set.csv', # '/filter0.1_Test_set.csv',
+              'valid': edge_root_path + '/Validation_set.csv'} # '/filter0.1_Validation_set.csv'}
+
+data, split_edge = load_data(feat_path, edge_paths, args.imputed, args.use_log, args.use_pca)  #data对象只包含训练集的links（mask）
 
 num_nodes, args.num_features = data.x.shape
 directed = False
 
-data_root = '/mnt/data/oss_beijing/qiank/pyg_datasets/' + data_name
+data_root = '/mnt/data/oss_beijing/qiank/pyg_datasets/' + data_type # + 'filter'
+
+if args.imputed:
+    data_root = data_root + '_imputed'
+
 if args.use_log:
     data_root = data_root + '_log'
 
@@ -134,7 +165,7 @@ train_dataset, val_dataset, test_dataset = \
 
 train_loader = DataLoader(train_dataset, batch_size=args.batch_size,
                           shuffle=True, num_workers=args.num_workers,
-                          pin_memory=True, prefetch_factor=8)
+                          pin_memory=True, prefetch_factor=4)
 val_loader = DataLoader(val_dataset, batch_size=args.batch_size,
                         num_workers=args.num_workers, pin_memory=True)
 test_loader = DataLoader(test_dataset, batch_size=args.batch_size,
@@ -155,7 +186,6 @@ if 'DGCNN' in args.model:
         args.k = max(10, k)
     else:
         args.k = args.sortpool_k
-
     print(f'SortPooling k is set to {args.k}')
 
 # Training starts
@@ -175,9 +205,10 @@ for epoch in range(args.n_epochs):
     val_loss, val_auc = trainer.val(val_loader=val_loader)
     print('Epoch: {}, Train Loss: {}, Valid Loss: {}, Valid auc: {}'.format(epoch+1, train_loss, val_loss, val_auc))
 
-    if (epoch+1) >= 2 and val_auc > best_val_acu:
+    if val_auc > best_val_acu:
         best_val_epoch = epoch
         best_val_acu = val_auc
+        best_model = trainer.model.state_dict()
 
     test_auc = trainer.test(test_loader=test_loader)
     print('Test auc: {}'.format(test_auc))
@@ -193,8 +224,8 @@ for epoch in range(args.n_epochs):
 
 
 writer.close()
-model_name = os.path.join(args.res_dir, '{}_{}_checkpoint.pth'.format(data_name, str(args.num_hops)))
-torch.save(trainer.model.state_dict(), model_name)
+model_name = os.path.join(args.res_dir, '{}_checkpoint.pth'.format(param_str))
+torch.save(best_model, model_name)
 
 print("Final test auc for data '{}' is: {}, for best_val is: {}, best test is: {}".format(
-    data_name, all_test_auc[-1], all_test_auc[best_val_epoch], max(all_test_auc)))
+    param_str, all_test_auc[-1], all_test_auc[best_val_epoch], max(all_test_auc)))
